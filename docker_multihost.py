@@ -78,13 +78,13 @@ class docker_multihost(ShutItModule):
 		    shutit.send('vagrant box add https://atlas.hashicorp.com/ubuntu/boxes/trusty64',note='Download the trusty64 vagrant box')
 		ip_base = '192.168.33'
 		ip_list = []
-		for num in range(3):
-			if num == 0:
+		for num in range(1,4):
+			if num == 1:
 				master = True
 			else:
 				master = False
-			shutit.send('mkdir -p /tmp/shutit-docker-multihost/ha-' + str(num) + ' && cd /tmp/shutit-docker-multihost/ha-' + str(num) + ' && vagrant init ubuntu/trusty64',note='Set up a trusty vm')
-			shutit.send('cd /tmp/shutit-docker-multihost/ha-' + str(num))
+			shutit.send('mkdir -p /tmp/shutit-docker-multihost/dm-' + str(num) + ' && cd /tmp/shutit-docker-multihost/dm-' + str(num) + ' && vagrant init ubuntu/trusty64',note='Set up a trusty vm')
+			shutit.send('cd /tmp/shutit-docker-multihost/dm-' + str(num))
 			new_ip = ip_base + '.' + str(10 + num)
 			ip_list = ip_list + [new_ip]
 			shutit.insert_text('''    config.vm.network "private_network", ip: "''' + ip_base + '''.''' + str(10 + num) + '"','./Vagrantfile','.*ubuntu/trusty64.*')
@@ -107,7 +107,7 @@ class docker_multihost(ShutItModule):
 				shutit.send('cp *deb /tmp/shutit-docker-multihost')
 # Install some dependencies (needed for later) and install your packages
 			else:
-				shutit.send('cp ../*deb /tmp/shutit-docker-multihost/ha-' + str(num))
+				shutit.send('cp ../*deb /tmp/shutit-docker-multihost/dm-' + str(num))
 			shutit.login(command='vagrant ssh')
 			shutit.login(command='sudo su -')
 			shutit.send('apt-get install -y bridge-utils docker.io')
@@ -115,7 +115,125 @@ class docker_multihost(ShutItModule):
 			shutit.logout()
 			shutit.logout()
 			shutit.send('cd')
-		shutit.pause_point(str(ip_list))
+		for num in range(1,4):
+			shutit.send('cd /tmp/shutit-docker-multihost/dm-' + str(num))
+			shutit.login(command='vagrant ssh')
+			shutit.login(command='sudo su -')
+			if num == 1:
+				shutit.send('''cat >> /etc/network/interfaces << 'END'
+# auto: to effectively starts it at boot
+# br0=br0: to prevent finding the interface on `ifquery --list`
+auto br0=br0
+allow-ovs br0
+iface br0 inet manual
+    ovs_type OVSBridge
+    ovs_ports gre1 gre2
+    ovs_extra set bridge ${IFACE} stp_enable=true
+    mtu 1462
+
+allow-br0 gre1
+iface gre1 inet manual
+    ovs_type OVSPort
+    ovs_bridge br0
+    ovs_extra set interface ${IFACE} type=gre options:remote_ip=''' + ip_list[1] + '''
+
+allow-br0 gre2
+iface gre2 inet manual
+    ovs_type OVSPort
+    ovs_bridge br0
+    ovs_extra set interface ${IFACE} type=gre options:remote_ip=''' + ip_list[2] + '''
+
+# auto: create on start
+# Define the docker0 that will be used by docker, and attached (when available) to
+# the br0 bridge created by OpenVSwitch
+# A different IP address need to be provided on each host (no conflict!)
+auto docker0=docker0
+iface docker0 inet static
+    address 172.17.42.''' + str(num) + '''
+    network 172.17.0.0
+    netmask 255.255.0.0
+    bridge_ports br0
+    mtu 1462
+END''')
+			if num == 2:
+				shutit.send('''cat >> /etc/network/interfaces << 'END'
+# auto: to effectively starts it at boot
+# br0=br0: to prevent finding the interface on `ifquery --list`
+auto br0=br0
+allow-ovs br0
+iface br0 inet manual
+    ovs_type OVSBridge
+    ovs_ports gre1 gre3
+    ovs_extra set bridge ${IFACE} stp_enable=true
+    mtu 1462
+
+allow-br0 gre1
+iface gre1 inet manual
+    ovs_type OVSPort
+    ovs_bridge br0
+    ovs_extra set interface ${IFACE} type=gre options:remote_ip=''' + ip_list[0] + '''
+
+allow-br0 gre3
+iface gre3 inet manual
+    ovs_type OVSPort
+    ovs_bridge br0
+    ovs_extra set interface ${IFACE} type=gre options:remote_ip=''' + ip_list[2] + '''
+
+# auto: create on start
+# Define the docker0 that will be used by docker, and attached (when available) to
+# the br0 bridge created by OpenVSwitch
+# A different IP address need to be provided on each host (no conflict!)
+auto docker0=docker0
+iface docker0 inet static
+    address 172.17.42.''' + str(num) + '''
+    network 172.17.0.0
+    netmask 255.255.0.0
+    bridge_ports br0
+    mtu 1462
+END''')
+			if num == 3:
+				shutit.send('''cat >> /etc/network/interfaces << 'END'
+# auto: to effectively starts it at boot
+# br0=br0: to prevent finding the interface on `ifquery --list`
+auto br0=br0
+allow-ovs br0
+iface br0 inet manual
+    ovs_type OVSBridge
+    ovs_ports gre2 gre3
+    ovs_extra set bridge ${IFACE} stp_enable=true
+    mtu 1462
+
+allow-br0 gre2
+iface gre1 inet manual
+    ovs_type OVSPort
+    ovs_bridge br0
+    ovs_extra set interface ${IFACE} type=gre options:remote_ip=''' + ip_list[1] + '''
+
+allow-br0 gre3
+iface gre3 inet manual
+    ovs_type OVSPort
+    ovs_bridge br0
+    ovs_extra set interface ${IFACE} type=gre options:remote_ip=''' + ip_list[2] + '''
+
+# auto: create on start
+# Define the docker0 that will be used by docker, and attached (when available) to
+# the br0 bridge created by OpenVSwitch
+# A different IP address need to be provided on each host (no conflict!)
+auto docker0=docker0
+iface docker0 inet static
+    address 172.17.42.''' + str(num) + '''
+    network 172.17.0.0
+    netmask 255.255.0.0
+    bridge_ports br0
+    mtu 1462
+END''')
+			shutit.logout()
+			shutit.logout()
+		for num in range(1,4):
+			shutit.send('cd /tmp/shutit-docker-multihost/dm-' + str(num))
+			shutit.send('vagrant ssh -- sudo reboot')
+		shutit.send('sleep 120')
+		shutit.pause_point('')
 		return True
 
 	def get_config(self, shutit):
